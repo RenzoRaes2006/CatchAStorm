@@ -229,11 +229,12 @@ local segmentAngle = 360 / prizeCount
 for i, prize in Config.WheelPrizes do
 	local angle = (i - 1) * segmentAngle
 	local rad = math.rad(angle)
-	local radius = WHEEL_SIZE / 2 - 58
+	-- Klein genoeg zodat 8 prijzen naast elkaar passen zonder te overlappen.
+	local radius = WHEEL_SIZE / 2 - 44
 	local chip = create("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.new(0.5, math.sin(rad) * radius, 0.5, -math.cos(rad) * radius),
-		Size = UDim2.fromOffset(96, 40),
+		Size = UDim2.fromOffset(76, 34),
 		Rotation = angle,
 		BackgroundColor3 = prize.color,
 		Parent = wheel,
