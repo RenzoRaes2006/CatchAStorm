@@ -1,0 +1,1691 @@
+<roblox version="4"><Item class="ReplicatedStorage" referent="RBX00000000000000000000000000000003"><Properties><string name="Name">ReplicatedStorage</string></Properties><Item class="Folder" referent="RBX00000000000000000000000000000002"><Properties><string name="Name">Shared</string></Properties><Item class="ModuleScript" referent="RBX00000000000000000000000000000001"><Properties><string name="Name">Config</string><ProtectedString name="Source"><![CDATA[-- Alle getallen van de game op één plek. Pas hier kansen, prijzen en beloningen aan.
+
+local Config = {}
+
+export type WeatherType = {
+	id: string,
+	name: string,
+	rarity: string,
+	weight: number, -- kans bij verschijnen (relatief)
+	income: number, -- munten per seconde in het lab
+	netTier: number, -- minimaal net dat nodig is
+	color: Color3,
+	size: number,
+}
+
+Config.Weather = {
+	{ id = "RainCloud", name = "Regenwolkje", rarity = "Gewoon", weight = 40, income = 1, netTier = 1, color = Color3.fromRGB(170, 190, 210), size = 4 },
+	{ id = "WindGust", name = "Windvlaag", rarity = "Gewoon", weight = 25, income = 2, netTier = 1, color = Color3.fromRGB(200, 240, 230), size = 4 },
+	{ id = "Hail", name = "Hagelbui", rarity = "Ongewoon", weight = 15, income = 5, netTier = 2, color = Color3.fromRGB(230, 240, 255), size = 4.5 },
+	{ id = "Lightning", name = "Bliksemschicht", rarity = "Zeldzaam", weight = 10, income = 15, netTier = 3, color = Color3.fromRGB(255, 240, 90), size = 5 },
+	{ id = "Tornado", name = "Mini-tornado", rarity = "Zeldzaam", weight = 6, income = 30, netTier = 3, color = Color3.fromRGB(150, 140, 130), size = 5.5 },
+	{ id = "Blizzard", name = "Sneeuwstorm", rarity = "Episch", weight = 3, income = 80, netTier = 4, color = Color3.fromRGB(180, 230, 255), size = 6 },
+} :: { WeatherType }
+
+Config.RarityColors = {
+	Gewoon = Color3.fromRGB(200, 200, 200),
+	Ongewoon = Color3.fromRGB(90, 200, 90),
+	Zeldzaam = Color3.fromRGB(80, 150, 255),
+	Episch = Color3.fromRGB(180, 90, 255),
+	Legendarisch = Color3.fromRGB(255, 170, 30),
+	Mythisch = Color3.fromRGB(255, 60, 90),
+} :: { [string]: Color3 }
+
+-- Varianten: kans per vangst en vermenigvuldiger voor het inkomen.
+Config.Variants = {
+	{ id = "Cosmic", name = "Kosmisch", chance = 0.001, multiplier = 25 },
+	{ id = "Frozen", name = "Bevroren", chance = 0.01, multiplier = 5 },
+	{ id = "Golden", name = "Gouden", chance = 0.05, multiplier = 3 },
+}
+
+-- Netten: tier 1 heeft iedereen al.
+Config.Nets = {
+	{ tier = 1, name = "Vlindernet", price = 0 },
+	{ tier = 2, name = "Visnet", price = 250 },
+	{ tier = 3, name = "Koperen net", price = 2500 },
+	{ tier = 4, name = "IJzeren net", price = 20000 },
+}
+
+-- Planken in het lab. Elke plank heeft 5 plekken voor potten.
+Config.SlotsPerShelf = 5
+Config.StartShelves = 2
+Config.MaxShelves = 8
+function Config.ShelfPrice(currentShelves: number): number
+	return math.floor(150 * 2.5 ^ (currentShelves - Config.StartShelves))
+end
+
+-- Weer in de wereld
+Config.MaxWeatherInWorld = 18
+Config.WeatherSpawnInterval = 2.5 -- seconden tussen nieuwe weer-objecten
+Config.WeatherLifetime = 45 -- seconden voordat weer weer verdwijnt
+Config.WorldSize = 360 -- breedte van de Groene Weide in studs
+Config.CatchHoldSeconds = 0.6
+
+-- Serverstorm
+Config.StormInterval = 300 -- elke 5 minuten
+Config.StormWarning = 30 -- seconden waarschuwing vooraf
+Config.StormDuration = 60
+Config.StormRadius = 60
+Config.StormLuckMultiplier = 5
+Config.StormSpawnInterval = 0.6
+
+-- Offline inkomen
+Config.MaxOfflineSeconds = 2 * 60 * 60
+
+-- Geluksboost (van het rad of beloningen)
+Config.LuckBoostMultiplier = 2
+
+-- Dagelijks rad. Elke dag (UTC) één gratis draai.
+-- kind: "Coins" (amount = seconden lab-inkomen, minimaal minCoins), "Luck" (amount = minuten), "Weather" (amount = weer-id)
+Config.WheelPrizes = {
+	{ label = "Munten", kind = "Coins", seconds = 120, minCoins = 100, weight = 30, color = Color3.fromRGB(255, 205, 60) },
+	{ label = "Geluk 10 min", kind = "Luck", minutes = 10, weight = 20, color = Color3.fromRGB(90, 200, 120) },
+	{ label = "Veel munten", kind = "Coins", seconds = 600, minCoins = 500, weight = 15, color = Color3.fromRGB(255, 150, 40) },
+	{ label = "Hagelbui", kind = "Weather", weatherId = "Hail", weight = 15, color = Color3.fromRGB(150, 200, 255) },
+	{ label = "Geluk 30 min", kind = "Luck", minutes = 30, weight = 10, color = Color3.fromRGB(40, 170, 90) },
+	{ label = "Bliksem", kind = "Weather", weatherId = "Lightning", weight = 7, color = Color3.fromRGB(80, 120, 255) },
+	{ label = "Jackpot", kind = "Coins", seconds = 3600, minCoins = 5000, weight = 2, color = Color3.fromRGB(230, 60, 90) },
+	{ label = "Sneeuwstorm", kind = "Weather", weatherId = "Blizzard", weight = 1, color = Color3.fromRGB(170, 90, 255) },
+}
+
+-- Speeltijd-beloningen: de eerste meteen, daarna steeds twee keer zo lang wachten
+-- (na 0, 2, 6, 14, 30, 62 en 126 minuten speeltijd op een dag).
+Config.PlaytimeRewards = {
+	{ kind = "Coins", seconds = 30, minCoins = 50 },
+	{ kind = "Coins", seconds = 60, minCoins = 100 },
+	{ kind = "Luck", minutes = 5 },
+	{ kind = "Coins", seconds = 300, minCoins = 400 },
+	{ kind = "Weather", weatherId = "Lightning" },
+	{ kind = "Coins", seconds = 1200, minCoins = 2000 },
+	{ kind = "Weather", weatherId = "Blizzard" },
+}
+
+-- Minuten speeltijd waarop beloning n beschikbaar wordt: 0, 2, 6, 14, 30, ...
+function Config.PlaytimeUnlockMinutes(index: number): number
+	return 2 ^ index - 2
+end
+
+function Config.GetWeather(id: string): WeatherType?
+	for _, w in Config.Weather do
+		if w.id == id then
+			return w
+		end
+	end
+	return nil
+end
+
+function Config.GetVariant(id: string?)
+	if id == nil then
+		return nil
+	end
+	for _, v in Config.Variants do
+		if v.id == id then
+			return v
+		end
+	end
+	return nil
+end
+
+function Config.JarIncome(weatherId: string, variantId: string?): number
+	local w = Config.GetWeather(weatherId)
+	if not w then
+		return 0
+	end
+	local v = Config.GetVariant(variantId)
+	return w.income * (if v then v.multiplier else 1)
+end
+
+function Config.FormatNumber(n: number): string
+	n = math.floor(n)
+	if n >= 1e9 then
+		return string.format("%.1fmld", n / 1e9)
+	elseif n >= 1e6 then
+		return string.format("%.1fmln", n / 1e6)
+	elseif n >= 1e4 then
+		return string.format("%.1fk", n / 1e3)
+	end
+	return tostring(n)
+end
+
+return Config
+]]></ProtectedString></Properties></Item></Item></Item><Item class="ServerScriptService" referent="RBX0000000000000000000000000000000D"><Properties><string name="Name">ServerScriptService</string></Properties><Item class="Folder" referent="RBX0000000000000000000000000000000C"><Properties><string name="Name">Server</string></Properties><Item class="ModuleScript" referent="RBX00000000000000000000000000000004"><Properties><string name="Name">Lab</string><ProtectedString name="Source"><![CDATA[-- Het weerlab van elke speler: een eigen plek, planken met potten, en inkomen per seconde.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local PlayerData = require(script.Parent.PlayerData)
+local World = require(script.Parent.World)
+
+local Lab = {}
+
+local plotOwners: { [number]: Player } = {}
+local playerPlots: { [Player]: number } = {}
+local plotModels: { [Player]: Model } = {}
+
+local VARIANT_SPARKLE = {
+	Golden = Color3.fromRGB(255, 215, 60),
+	Frozen = Color3.fromRGB(150, 230, 255),
+	Cosmic = Color3.fromRGB(220, 90, 255),
+}
+
+local function newPart(props): Part
+	local p = Instance.new("Part")
+	p.Anchored = true
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	for key, value in props do
+		p[key] = value
+	end
+	return p
+end
+
+local function makeLabel(parent: Instance, text: string, size: UDim2, offset: Vector3): TextLabel
+	local gui = Instance.new("BillboardGui")
+	gui.Size = size
+	gui.StudsOffset = offset
+	gui.AlwaysOnTop = false
+	gui.MaxDistance = 120
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.TextScaled = true
+	label.Font = Enum.Font.FredokaOne
+	label.TextColor3 = Color3.new(1, 1, 1)
+	label.TextStrokeTransparency = 0.3
+	label.Text = text
+	label.Parent = gui
+	gui.Parent = parent
+	return label
+end
+
+local function buildPlot(player: Player, index: number): Model
+	local model = Instance.new("Model")
+	model.Name = "Lab_" .. player.Name
+	local origin = World.PlotCFrame(index)
+
+	local floor = newPart({
+		Name = "Floor",
+		Size = World.PlotSize,
+		CFrame = origin,
+		Color = Color3.fromRGB(70, 90, 140),
+		Material = Enum.Material.SmoothPlastic,
+		Parent = model,
+	})
+	model.PrimaryPart = floor
+
+	local sign = newPart({
+		Name = "Sign",
+		Size = Vector3.new(1, 8, 1),
+		CFrame = origin * CFrame.new(0, 4.5, World.PlotSize.Z / 2 - 1),
+		Color = Color3.fromRGB(60, 60, 70),
+		Parent = model,
+	})
+	makeLabel(sign, "Lab van " .. player.DisplayName, UDim2.fromOffset(260, 50), Vector3.new(0, 6, 0)).Name = "Title"
+	makeLabel(sign, "0 munten/s", UDim2.fromOffset(200, 34), Vector3.new(0, 3.5, 0)).Name = "Income"
+
+	local shelves = Instance.new("Folder")
+	shelves.Name = "Shelves"
+	shelves.Parent = model
+
+	model.Parent = workspace.Labs
+	return model
+end
+
+local function shelfCFrame(origin: CFrame, row: number): CFrame
+	local z = -World.PlotSize.Z / 2 + 3 + (row - 1) * 3.4
+	return origin * CFrame.new(0, 2.5, z)
+end
+
+local function buildJar(parent: Instance, cf: CFrame, weatherId: string, variantId: string?)
+	local weather = Config.GetWeather(weatherId)
+	if not weather then
+		return
+	end
+	local glass = newPart({
+		Name = "Jar",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(2.6, 2.2, 2.2),
+		CFrame = cf * CFrame.Angles(0, 0, math.rad(90)),
+		Material = Enum.Material.Glass,
+		Transparency = 0.6,
+		Color = if variantId == "Frozen" then Color3.fromRGB(170, 230, 255) else Color3.fromRGB(220, 240, 255),
+		CanCollide = false,
+		Parent = parent,
+	})
+	newPart({
+		Name = "Lid",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(0.4, 2.4, 2.4),
+		CFrame = cf * CFrame.new(0, 1.4, 0) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = Color3.fromRGB(90, 70, 50),
+		Material = Enum.Material.Wood,
+		CanCollide = false,
+		Parent = parent,
+	})
+	local core = newPart({
+		Name = "Weather",
+		Shape = Enum.PartType.Ball,
+		Size = Vector3.new(1.5, 1.5, 1.5),
+		CFrame = cf,
+		Color = if variantId == "Golden" then Color3.fromRGB(255, 210, 60) else weather.color,
+		Material = Enum.Material.Neon,
+		CanCollide = false,
+		Parent = parent,
+	})
+	local sparkleColor = variantId and VARIANT_SPARKLE[variantId]
+	if sparkleColor then
+		local sparkles = Instance.new("Sparkles")
+		sparkles.SparkleColor = sparkleColor
+		sparkles.Parent = core
+	end
+	glass:SetAttribute("WeatherId", weatherId)
+end
+
+-- Tekent planken en potten opnieuw na een verandering.
+function Lab.Render(player: Player)
+	local model = plotModels[player]
+	local data = PlayerData.Get(player)
+	if not model or not data then
+		return
+	end
+	local shelves = model:FindFirstChild("Shelves")
+	shelves:ClearAllChildren()
+	local origin = model.PrimaryPart.CFrame
+
+	-- Sorteer zodat de waardevolste potten vooraan staan.
+	local sorted = table.clone(data.jars)
+	table.sort(sorted, function(a, b)
+		return Config.JarIncome(a.w, a.v) > Config.JarIncome(b.w, b.v)
+	end)
+
+	for row = 1, data.shelves do
+		local cf = shelfCFrame(origin, row)
+		newPart({
+			Name = "Shelf",
+			Size = Vector3.new(28, 0.6, 2.6),
+			CFrame = cf,
+			Color = Color3.fromRGB(150, 110, 70),
+			Material = Enum.Material.WoodPlanks,
+			Parent = shelves,
+		})
+		for slot = 1, Config.SlotsPerShelf do
+			local jar = sorted[(row - 1) * Config.SlotsPerShelf + slot]
+			if jar then
+				local x = (slot - (Config.SlotsPerShelf + 1) / 2) * 5
+				buildJar(shelves, cf * CFrame.new(x, 1.6, 0), jar.w, jar.v)
+			end
+		end
+	end
+
+	local sign = model:FindFirstChild("Sign")
+	for _, gui in sign:GetChildren() do
+		local label = gui:FindFirstChild("Income")
+		if label then
+			label.Text = Config.FormatNumber(PlayerData.Income(data)) .. " munten/s"
+		end
+	end
+end
+
+-- Voegt een pot toe. Is het lab vol, dan vervangt hij de zwakste pot als de nieuwe beter is.
+-- Geeft terug: "added", "replaced" of "full".
+function Lab.AddJar(player: Player, weatherId: string, variantId: string?): string
+	local data = PlayerData.Get(player)
+	if not data then
+		return "full"
+	end
+	local newJar = { w = weatherId, v = variantId }
+	local result
+	if #data.jars < PlayerData.Capacity(data) then
+		table.insert(data.jars, newJar)
+		result = "added"
+	else
+		local weakestIndex, weakestIncome = nil, math.huge
+		for i, jar in data.jars do
+			local income = Config.JarIncome(jar.w, jar.v)
+			if income < weakestIncome then
+				weakestIndex, weakestIncome = i, income
+			end
+		end
+		if weakestIndex and Config.JarIncome(weatherId, variantId) > weakestIncome then
+			data.jars[weakestIndex] = newJar
+			result = "replaced"
+		else
+			return "full"
+		end
+	end
+	data.totalCaught += 1
+	Lab.Render(player)
+	PlayerData.Sync(player)
+	return result
+end
+
+function Lab.TeleportHome(player: Player)
+	local index = playerPlots[player]
+	local character = player.Character
+	if not index or not character then
+		return
+	end
+	local root = character:FindFirstChild("HumanoidRootPart")
+	if root then
+		local front = World.PlotCFrame(index) * CFrame.new(0, 4, World.PlotSize.Z / 2 + 6)
+		character:PivotTo(CFrame.lookAt(front.Position, front.Position + Vector3.new(0, 0, 1)))
+	end
+end
+
+function Lab.OnPlayerLoaded(player: Player)
+	local index = nil
+	for i = 1, World.PlotCount do
+		if not plotOwners[i] then
+			index = i
+			break
+		end
+	end
+	if not index then
+		warn("[Lab] Geen vrije plek voor", player.Name, "- zet Max Players op", World.PlotCount)
+		return
+	end
+	plotOwners[index] = player
+	playerPlots[player] = index
+	plotModels[player] = buildPlot(player, index)
+	Lab.Render(player)
+
+	player.CharacterAdded:Connect(function()
+		task.wait(0.2)
+		Lab.TeleportHome(player)
+	end)
+	if player.Character then
+		Lab.TeleportHome(player)
+	end
+end
+
+function Lab.Start()
+	Players.PlayerRemoving:Connect(function(player)
+		local index = playerPlots[player]
+		if index then
+			plotOwners[index] = nil
+		end
+		playerPlots[player] = nil
+		if plotModels[player] then
+			plotModels[player]:Destroy()
+			plotModels[player] = nil
+		end
+	end)
+
+	-- Inkomen: elke seconde munten voor alle potten.
+	task.spawn(function()
+		local ticks = 0
+		while true do
+			task.wait(1)
+			ticks += 1
+			for _, player in Players:GetPlayers() do
+				local data = PlayerData.Get(player)
+				if data then
+					PlayerData.AddCoins(player, PlayerData.Income(data))
+					if ticks % 5 == 0 then
+						PlayerData.Sync(player)
+					end
+				end
+			end
+		end
+	end)
+end
+
+return Lab
+]]></ProtectedString></Properties></Item><Item class="Script" referent="RBX00000000000000000000000000000005"><Properties><string name="Name">Main</string><ProtectedString name="Source"><![CDATA[-- Startpunt van de server. Bouwt de wereld en start alle onderdelen.
+
+local Remotes = require(script.Parent.Remotes)
+local World = require(script.Parent.World)
+local PlayerData = require(script.Parent.PlayerData)
+local Lab = require(script.Parent.Lab)
+local Weather = require(script.Parent.Weather)
+local Shop = require(script.Parent.Shop)
+local Rewards = require(script.Parent.Rewards)
+local Config = require(game:GetService("ReplicatedStorage").Shared.Config)
+
+World.Build()
+Lab.Start()
+Shop.Start()
+Rewards.Start()
+Weather.Start()
+
+PlayerData.Start(function(player, _data, offlineCoins)
+	Lab.OnPlayerLoaded(player)
+	if offlineCoins > 0 then
+		task.delay(3, function()
+			Remotes.Notify:FireClient(
+				player,
+				"Je lab verdiende " .. Config.FormatNumber(offlineCoins) .. " munten terwijl je weg was!",
+				Color3.fromRGB(255, 220, 80)
+			)
+		end)
+	end
+end)
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000000000000000000000000000006"><Properties><string name="Name">PlayerData</string><ProtectedString name="Source"><![CDATA[-- Laadt en bewaart de voortgang van spelers (DataStore) en stuurt de stand naar de client.
+
+local DataStoreService = game:GetService("DataStoreService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local Remotes = require(script.Parent.Remotes)
+
+local PlayerData = {}
+
+local STORE_NAME = "CatchAStorm_v1"
+local AUTOSAVE_SECONDS = 120
+
+local store = nil
+do
+	local ok, result = pcall(function()
+		return DataStoreService:GetDataStore(STORE_NAME)
+	end)
+	if ok then
+		store = result
+	else
+		warn("[PlayerData] DataStore niet beschikbaar, voortgang wordt niet opgeslagen:", result)
+	end
+end
+
+local profiles: { [Player]: any } = {}
+
+function PlayerData.Today(): number
+	return math.floor(os.time() / 86400)
+end
+
+local function defaultData()
+	return {
+		coins = 0,
+		netTier = 1,
+		shelves = Config.StartShelves,
+		jars = {}, -- lijst van { w = weatherId, v = variantId of nil }
+		totalCaught = 0,
+		wheelDay = -1,
+		playDay = PlayerData.Today(),
+		playSeconds = 0,
+		playClaimed = 0,
+		luckUntil = 0,
+		lastOnline = os.time(),
+	}
+end
+
+local function reconcile(data)
+	local defaults = defaultData()
+	for key, value in defaults do
+		if data[key] == nil then
+			data[key] = value
+		end
+	end
+	return data
+end
+
+function PlayerData.Get(player: Player)
+	return profiles[player]
+end
+
+function PlayerData.Capacity(data): number
+	return data.shelves * Config.SlotsPerShelf
+end
+
+function PlayerData.Income(data): number
+	local total = 0
+	for _, jar in data.jars do
+		total += Config.JarIncome(jar.w, jar.v)
+	end
+	return total
+end
+
+-- Alles wat de client nodig heeft om de UI te tekenen.
+function PlayerData.Sync(player: Player)
+	local data = profiles[player]
+	if not data then
+		return
+	end
+	Remotes.State:FireClient(player, {
+		coins = data.coins,
+		income = PlayerData.Income(data),
+		netTier = data.netTier,
+		shelves = data.shelves,
+		capacity = PlayerData.Capacity(data),
+		jars = data.jars,
+		totalCaught = data.totalCaught,
+		wheelReady = data.wheelDay ~= PlayerData.Today(),
+		playSeconds = data.playSeconds,
+		playClaimed = data.playClaimed,
+		luckLeft = math.max(0, data.luckUntil - os.time()),
+		serverTime = os.time(),
+	})
+end
+
+function PlayerData.SetCoins(player: Player, amount: number)
+	local data = profiles[player]
+	if not data then
+		return
+	end
+	data.coins = amount
+	local leaderstats = player:FindFirstChild("leaderstats")
+	local coinsValue = leaderstats and leaderstats:FindFirstChild("Munten")
+	if coinsValue then
+		coinsValue.Value = math.floor(amount)
+	end
+end
+
+function PlayerData.AddCoins(player: Player, amount: number)
+	local data = profiles[player]
+	if data then
+		PlayerData.SetCoins(player, data.coins + amount)
+	end
+end
+
+local function save(player: Player)
+	local data = profiles[player]
+	if not data or not store then
+		return
+	end
+	data.lastOnline = os.time()
+	local ok, err = pcall(function()
+		store:SetAsync("player_" .. player.UserId, data)
+	end)
+	if not ok then
+		warn("[PlayerData] Opslaan mislukt voor", player.Name, err)
+	end
+end
+
+local function load(player: Player)
+	local data = nil
+	if store then
+		for _ = 1, 3 do
+			local ok, result = pcall(function()
+				return store:GetAsync("player_" .. player.UserId)
+			end)
+			if ok then
+				data = result
+				break
+			end
+			task.wait(1)
+		end
+	end
+	data = reconcile(data or defaultData())
+
+	-- Nieuwe dag: speeltijd-beloningen beginnen opnieuw.
+	if data.playDay ~= PlayerData.Today() then
+		data.playDay = PlayerData.Today()
+		data.playSeconds = 0
+		data.playClaimed = 0
+	end
+
+	-- Inkomen terwijl de speler weg was (maximaal 2 uur).
+	local away = math.clamp(os.time() - data.lastOnline, 0, Config.MaxOfflineSeconds)
+	local offlineCoins = math.floor(away * PlayerData.Income(data))
+	data.coins += offlineCoins
+	data.lastOnline = os.time()
+
+	return data, offlineCoins
+end
+
+-- onLoaded(player, data, offlineCoins) wordt aangeroepen zodra de data klaar is.
+function PlayerData.Start(onLoaded: (Player, any, number) -> ())
+	local function onPlayerAdded(player: Player)
+		local leaderstats = Instance.new("Folder")
+		leaderstats.Name = "leaderstats"
+		local coinsValue = Instance.new("NumberValue")
+		coinsValue.Name = "Munten"
+		coinsValue.Parent = leaderstats
+		leaderstats.Parent = player
+
+		local data, offlineCoins = load(player)
+		if not player.Parent then
+			return
+		end
+		profiles[player] = data
+		PlayerData.SetCoins(player, data.coins)
+		onLoaded(player, data, offlineCoins)
+		PlayerData.Sync(player)
+	end
+
+	Players.PlayerAdded:Connect(onPlayerAdded)
+	for _, player in Players:GetPlayers() do
+		task.spawn(onPlayerAdded, player)
+	end
+
+	Players.PlayerRemoving:Connect(function(player)
+		save(player)
+		profiles[player] = nil
+	end)
+
+	game:BindToClose(function()
+		for _, player in Players:GetPlayers() do
+			task.spawn(save, player)
+		end
+		task.wait(3)
+	end)
+
+	task.spawn(function()
+		while true do
+			task.wait(AUTOSAVE_SECONDS)
+			for _, player in Players:GetPlayers() do
+				task.spawn(save, player)
+			end
+		end
+	end)
+end
+
+return PlayerData
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000000000000000000000000000007"><Properties><string name="Name">Remotes</string><ProtectedString name="Source"><![CDATA[-- Maakt alle RemoteEvents en RemoteFunctions aan in ReplicatedStorage.Remotes.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local folder = Instance.new("Folder")
+folder.Name = "Remotes"
+
+local function event(name: string): RemoteEvent
+	local remote = Instance.new("RemoteEvent")
+	remote.Name = name
+	remote.Parent = folder
+	return remote
+end
+
+local function func(name: string): RemoteFunction
+	local remote = Instance.new("RemoteFunction")
+	remote.Name = name
+	remote.Parent = folder
+	return remote
+end
+
+local Remotes = {
+	State = event("State"), -- server -> client: volledige stand van de speler
+	Notify = event("Notify"), -- server -> client: korte melding (tekst, kleur)
+	Storm = event("Storm"), -- server -> iedereen: storm-fase
+	BuyNet = func("BuyNet"),
+	BuyShelf = func("BuyShelf"),
+	SpinWheel = func("SpinWheel"),
+	ClaimPlaytime = func("ClaimPlaytime"),
+}
+
+folder.Parent = ReplicatedStorage
+
+return Remotes
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000000000000000000000000000008"><Properties><string name="Name">Rewards</string><ProtectedString name="Source"><![CDATA[-- Dagelijks rad en speeltijd-beloningen (0, 2, 6, 14, 30, ... minuten).
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local PlayerData = require(script.Parent.PlayerData)
+local Lab = require(script.Parent.Lab)
+local Remotes = require(script.Parent.Remotes)
+
+local Rewards = {}
+
+-- Geeft een beloning en geeft een tekst terug voor de melding.
+function Rewards.Grant(player: Player, reward): string
+	local data = PlayerData.Get(player)
+	if not data then
+		return ""
+	end
+	if reward.kind == "Coins" then
+		local amount = math.max(reward.minCoins or 0, math.floor(PlayerData.Income(data) * (reward.seconds or 0)))
+		PlayerData.AddCoins(player, amount)
+		PlayerData.Sync(player)
+		return Config.FormatNumber(amount) .. " munten"
+	elseif reward.kind == "Luck" then
+		data.luckUntil = math.max(os.time(), data.luckUntil) + reward.minutes * 60
+		PlayerData.Sync(player)
+		return reward.minutes .. " minuten geluksboost"
+	elseif reward.kind == "Weather" then
+		local weather = Config.GetWeather(reward.weatherId)
+		local result = Lab.AddJar(player, reward.weatherId, nil)
+		if result == "full" then
+			-- Lab vol en de pot is niet beter: geef munten als vervanging.
+			local amount = (weather and weather.income or 1) * 300
+			PlayerData.AddCoins(player, amount)
+			PlayerData.Sync(player)
+			return Config.FormatNumber(amount) .. " munten (je lab was vol)"
+		end
+		return "een pot " .. (weather and weather.name or reward.weatherId)
+	end
+	return ""
+end
+
+local function pickWheelIndex(): number
+	local total = 0
+	for _, prize in Config.WheelPrizes do
+		total += prize.weight
+	end
+	local roll = math.random() * total
+	for i, prize in Config.WheelPrizes do
+		roll -= prize.weight
+		if roll <= 0 then
+			return i
+		end
+	end
+	return 1
+end
+
+local function resetDayIfNeeded(data)
+	local today = PlayerData.Today()
+	if data.playDay ~= today then
+		data.playDay = today
+		data.playSeconds = 0
+		data.playClaimed = 0
+		return true
+	end
+	return false
+end
+
+function Rewards.Start()
+	Remotes.SpinWheel.OnServerInvoke = function(player: Player)
+		local data = PlayerData.Get(player)
+		if not data then
+			return nil
+		end
+		if data.wheelDay == PlayerData.Today() then
+			return nil
+		end
+		data.wheelDay = PlayerData.Today()
+		local index = pickWheelIndex()
+		-- De client laat het rad eerst draaien en toont daarna de prijs.
+		local text = Rewards.Grant(player, Config.WheelPrizes[index])
+		PlayerData.Sync(player)
+		return index, text
+	end
+
+	Remotes.ClaimPlaytime.OnServerInvoke = function(player: Player)
+		local data = PlayerData.Get(player)
+		if not data then
+			return false, "Even geduld."
+		end
+		resetDayIfNeeded(data)
+		local nextIndex = data.playClaimed + 1
+		local reward = Config.PlaytimeRewards[nextIndex]
+		if not reward then
+			return false, "Alle beloningen van vandaag zijn binnen. Morgen weer!"
+		end
+		if data.playSeconds < Config.PlaytimeUnlockMinutes(nextIndex) * 60 then
+			return false, "Nog even spelen voor de volgende beloning."
+		end
+		data.playClaimed = nextIndex
+		local text = Rewards.Grant(player, reward)
+		PlayerData.Sync(player)
+		return true, "Beloning: " .. text
+	end
+
+	-- Speeltijd telt per dag, niet per keer inloggen.
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			for _, player in Players:GetPlayers() do
+				local data = PlayerData.Get(player)
+				if data then
+					if resetDayIfNeeded(data) then
+						PlayerData.Sync(player)
+					end
+					data.playSeconds += 1
+				end
+			end
+		end
+	end)
+end
+
+return Rewards
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX00000000000000000000000000000009"><Properties><string name="Name">Shop</string><ProtectedString name="Source"><![CDATA[-- Kopen met munten: betere netten en extra planken.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local PlayerData = require(script.Parent.PlayerData)
+local Lab = require(script.Parent.Lab)
+local Remotes = require(script.Parent.Remotes)
+
+local Shop = {}
+
+function Shop.Start()
+	Remotes.BuyNet.OnServerInvoke = function(player: Player)
+		local data = PlayerData.Get(player)
+		if not data then
+			return false, "Even geduld, je data wordt geladen."
+		end
+		local nextNet = Config.Nets[data.netTier + 1]
+		if not nextNet then
+			return false, "Je hebt al het beste net!"
+		end
+		if data.coins < nextNet.price then
+			return false, "Niet genoeg munten."
+		end
+		PlayerData.SetCoins(player, data.coins - nextNet.price)
+		data.netTier = nextNet.tier
+		PlayerData.Sync(player)
+		return true, "Je hebt nu een " .. nextNet.name .. "!"
+	end
+
+	Remotes.BuyShelf.OnServerInvoke = function(player: Player)
+		local data = PlayerData.Get(player)
+		if not data then
+			return false, "Even geduld, je data wordt geladen."
+		end
+		if data.shelves >= Config.MaxShelves then
+			return false, "Je lab zit vol met planken!"
+		end
+		local price = Config.ShelfPrice(data.shelves)
+		if data.coins < price then
+			return false, "Niet genoeg munten."
+		end
+		PlayerData.SetCoins(player, data.coins - price)
+		data.shelves += 1
+		Lab.Render(player)
+		PlayerData.Sync(player)
+		return true, "Extra plank gekocht: " .. Config.SlotsPerShelf .. " plekken erbij!"
+	end
+end
+
+return Shop
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000000000000000000000000000A"><Properties><string name="Name">Weather</string><ProtectedString name="Source"><![CDATA[-- Laat weer verschijnen in de wereld, regelt het vangen en de serverstorm.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local PlayerData = require(script.Parent.PlayerData)
+local Lab = require(script.Parent.Lab)
+local World = require(script.Parent.World)
+local Remotes = require(script.Parent.Remotes)
+
+local Weather = {}
+
+local normalCount = 0
+local stormCount = 0
+local MAX_STORM_WEATHER = 25
+
+-- Kiest een weertype op basis van de kansen. luck > 1 maakt alles behalve "Gewoon" vaker.
+local function pickWeather(luck: number)
+	local total = 0
+	for _, w in Config.Weather do
+		total += w.weight * (if w.rarity == "Gewoon" then 1 else luck)
+	end
+	local roll = math.random() * total
+	for _, w in Config.Weather do
+		roll -= w.weight * (if w.rarity == "Gewoon" then 1 else luck)
+		if roll <= 0 then
+			return w
+		end
+	end
+	return Config.Weather[1]
+end
+
+local function rollVariant(luck: number): string?
+	for _, variant in Config.Variants do
+		if math.random() < variant.chance * luck then
+			return variant.id
+		end
+	end
+	return nil
+end
+
+local function notify(player: Player, text: string, color: Color3?)
+	Remotes.Notify:FireClient(player, text, color or Color3.new(1, 1, 1))
+end
+
+local function onCaught(part: BasePart, weather, player: Player)
+	if part:GetAttribute("Caught") then
+		return
+	end
+	local data = PlayerData.Get(player)
+	if not data then
+		return
+	end
+	if data.netTier < weather.netTier then
+		local net = Config.Nets[weather.netTier]
+		notify(player, "Je hebt een " .. net.name .. " nodig voor " .. weather.name .. "!", Color3.fromRGB(255, 120, 120))
+		return
+	end
+	part:SetAttribute("Caught", true)
+
+	local luck = if data.luckUntil > os.time() then Config.LuckBoostMultiplier else 1
+	local variantId = rollVariant(luck)
+	local result = Lab.AddJar(player, weather.id, variantId)
+	if result == "full" then
+		part:SetAttribute("Caught", nil)
+		notify(player, "Je lab is vol! Koop een extra plank of vang beter weer.", Color3.fromRGB(255, 180, 80))
+		return
+	end
+
+	local variant = Config.GetVariant(variantId)
+	local name = (if variant then variant.name .. " " else "") .. weather.name
+	local color = Config.RarityColors[weather.rarity] or Color3.new(1, 1, 1)
+	if variant then
+		color = Color3.fromRGB(255, 220, 80)
+		-- Een variant is iets om te laten zien: iedereen in de server ziet het.
+		for _, other in Players:GetPlayers() do
+			notify(other, player.DisplayName .. " ving een " .. name .. "!", color)
+		end
+	else
+		notify(player, "Gevangen: " .. name .. (if result == "replaced" then " (zwakste pot vervangen)" else ""), color)
+	end
+	part:Destroy()
+end
+
+local function spawnWeather(position: Vector3, luck: number, isStorm: boolean)
+	local weather = pickWeather(luck)
+	local height = 3 + weather.size / 2 + math.random() * 2
+
+	local part = Instance.new("Part")
+	part.Name = weather.id
+	part.Shape = Enum.PartType.Ball
+	part.Size = Vector3.new(weather.size, weather.size, weather.size)
+	part.Position = position + Vector3.new(0, height, 0)
+	part.Anchored = true
+	part.CanCollide = false
+	part.Material = Enum.Material.Neon
+	part.Color = weather.color
+	part.Transparency = 0.25
+	part:SetAttribute("WeatherId", weather.id)
+
+	local particles = Instance.new("ParticleEmitter")
+	particles.Color = ColorSequence.new(weather.color)
+	particles.Rate = 12
+	particles.Lifetime = NumberRange.new(0.6, 1.2)
+	particles.Speed = NumberRange.new(2, 5)
+	particles.SpreadAngle = Vector2.new(180, 180)
+	particles.Size = NumberSequence.new(0.4, 0)
+	particles.LightEmission = 0.8
+	particles.Parent = part
+
+	local light = Instance.new("PointLight")
+	light.Color = weather.color
+	light.Range = 12
+	light.Brightness = 1.5
+	light.Parent = part
+
+	local gui = Instance.new("BillboardGui")
+	gui.Size = UDim2.fromOffset(160, 44)
+	gui.StudsOffset = Vector3.new(0, weather.size / 2 + 1.5, 0)
+	gui.MaxDistance = 80
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Size = UDim2.fromScale(1, 0.55)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.TextScaled = true
+	nameLabel.Font = Enum.Font.FredokaOne
+	nameLabel.TextColor3 = Color3.new(1, 1, 1)
+	nameLabel.TextStrokeTransparency = 0.3
+	nameLabel.Text = weather.name
+	nameLabel.Parent = gui
+	local rarityLabel = nameLabel:Clone()
+	rarityLabel.Position = UDim2.fromScale(0, 0.55)
+	rarityLabel.Size = UDim2.fromScale(1, 0.45)
+	rarityLabel.TextColor3 = Config.RarityColors[weather.rarity] or Color3.new(1, 1, 1)
+	rarityLabel.Text = weather.rarity
+	rarityLabel.Parent = gui
+	gui.Parent = part
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "Vang"
+	prompt.ObjectText = weather.name
+	prompt.HoldDuration = Config.CatchHoldSeconds
+	prompt.MaxActivationDistance = 14
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = part
+	prompt.Triggered:Connect(function(player)
+		onCaught(part, weather, player)
+	end)
+
+	part.Parent = workspace.Weather
+
+	-- Zachtjes op en neer zweven.
+	local bob = TweenService:Create(
+		part,
+		TweenInfo.new(1.5 + math.random(), Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+		{ Position = part.Position + Vector3.new(0, 1.5, 0) }
+	)
+	bob:Play()
+
+	if isStorm then
+		stormCount += 1
+	else
+		normalCount += 1
+	end
+	part.Destroying:Connect(function()
+		bob:Cancel()
+		if isStorm then
+			stormCount -= 1
+		else
+			normalCount -= 1
+		end
+	end)
+
+	task.delay(Config.WeatherLifetime + math.random() * 10, function()
+		if part.Parent then
+			part:Destroy()
+		end
+	end)
+end
+
+local function makeStormCloud(center: Vector3): Model
+	local model = Instance.new("Model")
+	model.Name = "ServerStorm"
+	local cloud = Instance.new("Part")
+	cloud.Name = "Cloud"
+	cloud.Shape = Enum.PartType.Cylinder
+	cloud.Size = Vector3.new(12, Config.StormRadius * 2, Config.StormRadius * 2)
+	cloud.CFrame = CFrame.new(center + Vector3.new(0, 55, 0)) * CFrame.Angles(0, 0, math.rad(90))
+	cloud.Color = Color3.fromRGB(60, 60, 75)
+	cloud.Material = Enum.Material.SmoothPlastic
+	cloud.Transparency = 0.25
+	cloud.Anchored = true
+	cloud.CanCollide = false
+	cloud.Parent = model
+
+	local rain = cloud:Clone()
+	rain.Name = "Rain"
+	rain.Size = Vector3.new(55, Config.StormRadius * 2 - 4, Config.StormRadius * 2 - 4)
+	rain.CFrame = CFrame.new(center + Vector3.new(0, 27, 0)) * CFrame.Angles(0, 0, math.rad(90))
+	rain.Color = Color3.fromRGB(120, 140, 200)
+	rain.Transparency = 0.85
+	rain.Parent = model
+
+	local light = Instance.new("PointLight")
+	light.Color = Color3.fromRGB(180, 200, 255)
+	light.Range = 60
+	light.Brightness = 3
+	light.Parent = cloud
+
+	model.Parent = workspace.Weather
+	return model
+end
+
+local function runStorm()
+	local center = World.RandomFieldPosition()
+	Remotes.Storm:FireAllClients("warning", center, Config.StormWarning)
+	local cloud = makeStormCloud(center)
+	task.wait(Config.StormWarning)
+
+	Remotes.Storm:FireAllClients("active", center, Config.StormDuration)
+	local endsAt = os.clock() + Config.StormDuration
+	while os.clock() < endsAt do
+		if stormCount < MAX_STORM_WEATHER then
+			local angle = math.random() * math.pi * 2
+			local dist = math.sqrt(math.random()) * Config.StormRadius
+			local pos = center + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist)
+			spawnWeather(pos, Config.StormLuckMultiplier, true)
+		end
+		task.wait(Config.StormSpawnInterval)
+	end
+
+	Remotes.Storm:FireAllClients("ended", center, 0)
+	cloud:Destroy()
+end
+
+function Weather.Start()
+	-- Normaal weer
+	task.spawn(function()
+		while true do
+			if normalCount < Config.MaxWeatherInWorld then
+				spawnWeather(World.RandomFieldPosition(), 1, false)
+			end
+			task.wait(Config.WeatherSpawnInterval)
+		end
+	end)
+
+	-- Serverstorm elke paar minuten
+	task.spawn(function()
+		while true do
+			task.wait(Config.StormInterval - Config.StormWarning)
+			local ok, err = pcall(runStorm)
+			if not ok then
+				warn("[Weather] Storm mislukt:", err)
+			end
+		end
+	end)
+end
+
+return Weather
+]]></ProtectedString></Properties></Item><Item class="ModuleScript" referent="RBX0000000000000000000000000000000B"><Properties><string name="Name">World</string><ProtectedString name="Source"><![CDATA[-- Bouwt de Groene Weide en de rij weerlabs met code, zodat de game meteen speelbaar is.
+-- Later kun je de map in Studio mooier maken: zolang de onderdelen in Workspace.Map en
+-- Workspace.Labs blijven, werkt de code gewoon.
+
+local Lighting = game:GetService("Lighting")
+
+local Config = require(game:GetService("ReplicatedStorage").Shared.Config)
+
+local World = {}
+
+World.PlotCount = 10
+World.PlotSpacing = 50
+World.PlotSize = Vector3.new(40, 1, 32)
+World.PlotRowZ = -(Config.WorldSize / 2) - 30
+
+local function part(props): Part
+	local p = Instance.new("Part")
+	p.Anchored = true
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	for key, value in props do
+		p[key] = value
+	end
+	return p
+end
+
+function World.PlotCFrame(index: number): CFrame
+	local x = (index - (World.PlotCount + 1) / 2) * World.PlotSpacing
+	return CFrame.new(x, 0.5, World.PlotRowZ)
+end
+
+-- Willekeurige plek in het veld waar weer kan verschijnen.
+function World.RandomFieldPosition(): Vector3
+	local half = Config.WorldSize / 2 - 15
+	return Vector3.new(math.random(-half, half), 0, math.random(-half, half))
+end
+
+function World.Build()
+	local map = Instance.new("Folder")
+	map.Name = "Map"
+
+	part({
+		Name = "Meadow",
+		Size = Vector3.new(Config.WorldSize, 4, Config.WorldSize),
+		Position = Vector3.new(0, -2, 0),
+		Color = Color3.fromRGB(106, 170, 80),
+		Material = Enum.Material.Grass,
+		Parent = map,
+	})
+
+	part({
+		Name = "LabStrip",
+		Size = Vector3.new(World.PlotCount * World.PlotSpacing + 40, 4, 70),
+		Position = Vector3.new(0, -2, World.PlotRowZ),
+		Color = Color3.fromRGB(120, 120, 128),
+		Material = Enum.Material.Concrete,
+		Parent = map,
+	})
+
+	-- Een paar heuvels en bomen zodat het veld niet leeg is.
+	math.randomseed(42)
+	for _ = 1, 25 do
+		local pos = World.RandomFieldPosition()
+		local trunk = part({
+			Name = "Trunk",
+			Size = Vector3.new(2, 10, 2),
+			Position = pos + Vector3.new(0, 5, 0),
+			Color = Color3.fromRGB(110, 80, 50),
+			Material = Enum.Material.Wood,
+			Parent = map,
+		})
+		part({
+			Name = "Leaves",
+			Shape = Enum.PartType.Ball,
+			Size = Vector3.new(9, 9, 9),
+			Position = trunk.Position + Vector3.new(0, 7, 0),
+			Color = Color3.fromRGB(60, 140, 60),
+			Material = Enum.Material.Grass,
+			Parent = map,
+		})
+	end
+	math.randomseed(os.time())
+
+	local spawn = Instance.new("SpawnLocation")
+	spawn.Anchored = true
+	spawn.Size = Vector3.new(12, 1, 12)
+	spawn.Position = Vector3.new(0, 0.5, World.PlotRowZ + 40)
+	spawn.Transparency = 1
+	spawn.CanCollide = false
+	spawn.Neutral = true
+	spawn.Parent = map
+
+	map.Parent = workspace
+
+	local labs = Instance.new("Folder")
+	labs.Name = "Labs"
+	labs.Parent = workspace
+
+	local weatherFolder = Instance.new("Folder")
+	weatherFolder.Name = "Weather"
+	weatherFolder.Parent = workspace
+
+	Lighting.ClockTime = 14
+	Lighting.Brightness = 2
+end
+
+return World
+]]></ProtectedString></Properties></Item></Item></Item><Item class="StarterPlayer" referent="RBX00000000000000000000000000000011"><Properties><string name="Name">StarterPlayer</string></Properties><Item class="StarterPlayerScripts" referent="RBX00000000000000000000000000000010"><Properties><string name="Name">StarterPlayerScripts</string></Properties><Item class="Folder" referent="RBX0000000000000000000000000000000F"><Properties><string name="Name">Client</string></Properties><Item class="LocalScript" referent="RBX0000000000000000000000000000000E"><Properties><string name="Name">Main</string><ProtectedString name="Source"><![CDATA[-- Alle schermen van de speler: munten, winkel, dagelijks rad, speeltijd-beloningen,
+-- meldingen en de stormwaarschuwing. Alles wordt met code gemaakt.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local remotes = ReplicatedStorage:WaitForChild("Remotes")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local FONT = Enum.Font.FredokaOne
+local DARK = Color3.fromRGB(25, 30, 45)
+local ACCENT = Color3.fromRGB(70, 140, 255)
+local GOOD = Color3.fromRGB(70, 190, 100)
+
+local state = nil
+local stateClock = os.clock()
+
+---------------------------------------------------------------------------
+-- Hulpfuncties
+---------------------------------------------------------------------------
+local function create(className: string, props, children)
+	local inst = Instance.new(className)
+	for key, value in props do
+		if key ~= "Parent" then
+			inst[key] = value
+		end
+	end
+	for _, child in children or {} do
+		child.Parent = inst
+	end
+	if props.Parent then
+		inst.Parent = props.Parent
+	end
+	return inst
+end
+
+local function corner(radius: number?)
+	return create("UICorner", { CornerRadius = UDim.new(0, radius or 12) })
+end
+
+local function stroke()
+	return create("UIStroke", { Color = Color3.new(0, 0, 0), Thickness = 2, Transparency = 0.4 })
+end
+
+local function label(props)
+	props.BackgroundTransparency = props.BackgroundTransparency or 1
+	props.Font = FONT
+	props.TextColor3 = props.TextColor3 or Color3.new(1, 1, 1)
+	props.TextScaled = true
+	return create("TextLabel", props, { create("UIStroke", { Thickness = 1.5, Transparency = 0.3 }) })
+end
+
+local function button(props)
+	props.Font = FONT
+	props.TextColor3 = Color3.new(1, 1, 1)
+	props.TextScaled = true
+	props.AutoButtonColor = true
+	return create("TextButton", props, {
+		corner(12),
+		stroke(),
+		create("UIPadding", {
+			PaddingLeft = UDim.new(0, 8),
+			PaddingRight = UDim.new(0, 8),
+			PaddingTop = UDim.new(0, 6),
+			PaddingBottom = UDim.new(0, 6),
+		}),
+	})
+end
+
+local function formatTime(seconds: number): string
+	seconds = math.max(0, math.floor(seconds))
+	local m = math.floor(seconds / 60)
+	local s = seconds % 60
+	if m >= 60 then
+		return string.format("%d:%02d:%02d", math.floor(m / 60), m % 60, s)
+	end
+	return string.format("%d:%02d", m, s)
+end
+
+---------------------------------------------------------------------------
+-- Scherm
+---------------------------------------------------------------------------
+local gui = create("ScreenGui", {
+	Name = "CatchAStormUI",
+	ResetOnSpawn = false,
+	ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+	Parent = playerGui,
+})
+
+-- Munten bovenaan
+local topBar = create("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0),
+	Position = UDim2.new(0.5, 0, 0, 8),
+	Size = UDim2.fromOffset(360, 74),
+	BackgroundTransparency = 1,
+	Parent = gui,
+})
+local coinsLabel = label({
+	Size = UDim2.new(1, 0, 0, 44),
+	Text = "0 munten",
+	TextColor3 = Color3.fromRGB(255, 215, 70),
+	Parent = topBar,
+})
+local infoLabel = label({
+	Position = UDim2.fromOffset(0, 46),
+	Size = UDim2.new(1, 0, 0, 24),
+	Text = "",
+	Parent = topBar,
+})
+
+-- Knoppen links
+local sideBar = create("Frame", {
+	AnchorPoint = Vector2.new(0, 0.5),
+	Position = UDim2.new(0, 10, 0.5, 0),
+	Size = UDim2.fromOffset(150, 230),
+	BackgroundTransparency = 1,
+	Parent = gui,
+}, {
+	create("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }),
+})
+local shopButton = button({ Text = "Winkel", Size = UDim2.fromOffset(150, 60), BackgroundColor3 = ACCENT, LayoutOrder = 1, Parent = sideBar })
+local wheelButton = button({ Text = "Rad", Size = UDim2.fromOffset(150, 60), BackgroundColor3 = Color3.fromRGB(230, 120, 40), LayoutOrder = 2, Parent = sideBar })
+local rewardButton = button({ Text = "Beloning", Size = UDim2.fromOffset(150, 70), BackgroundColor3 = Color3.fromRGB(120, 120, 130), LayoutOrder = 3, Parent = sideBar })
+local wheelDot = create("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.new(1, -4, 0, 4),
+	Size = UDim2.fromOffset(18, 18),
+	BackgroundColor3 = Color3.fromRGB(255, 60, 60),
+	Visible = false,
+	Parent = wheelButton,
+}, { corner(9) })
+
+-- Meldingen
+local toastHolder = create("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0),
+	Position = UDim2.new(0.5, 0, 0, 90),
+	Size = UDim2.fromOffset(520, 200),
+	BackgroundTransparency = 1,
+	Parent = gui,
+}, {
+	create("UIListLayout", {
+		Padding = UDim.new(0, 6),
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}),
+})
+local toastCount = 0
+local function toast(text: string, color: Color3?)
+	toastCount += 1
+	local t = label({
+		Text = text,
+		Size = UDim2.fromOffset(520, 34),
+		TextColor3 = color or Color3.new(1, 1, 1),
+		BackgroundColor3 = DARK,
+		BackgroundTransparency = 0.35,
+		LayoutOrder = toastCount,
+		Parent = toastHolder,
+	})
+	corner(10).Parent = t
+	task.delay(3.5, function()
+		TweenService:Create(t, TweenInfo.new(0.4), { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
+		task.wait(0.4)
+		t:Destroy()
+	end)
+end
+
+-- Stormbanner
+local stormBanner = label({
+	AnchorPoint = Vector2.new(0.5, 1),
+	Position = UDim2.new(0.5, 0, 1, -20),
+	Size = UDim2.fromOffset(560, 56),
+	BackgroundColor3 = Color3.fromRGB(60, 50, 120),
+	BackgroundTransparency = 0.15,
+	Text = "",
+	Visible = false,
+	Parent = gui,
+})
+corner(14).Parent = stormBanner
+
+---------------------------------------------------------------------------
+-- Panelen
+---------------------------------------------------------------------------
+local function panel(title: string, size: Vector2)
+	local frame = create("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(size.X, size.Y),
+		BackgroundColor3 = DARK,
+		BackgroundTransparency = 0.05,
+		Visible = false,
+		Parent = gui,
+	}, { corner(18), stroke() })
+	label({ Text = title, Size = UDim2.new(1, -60, 0, 44), Position = UDim2.fromOffset(16, 8), TextXAlignment = Enum.TextXAlignment.Left, Parent = frame })
+	local close = button({
+		Text = "X",
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -10, 0, 10),
+		Size = UDim2.fromOffset(44, 44),
+		BackgroundColor3 = Color3.fromRGB(200, 60, 60),
+		Parent = frame,
+	})
+	close.Activated:Connect(function()
+		frame.Visible = false
+	end)
+	return frame
+end
+
+local shopPanel = panel("Winkel", Vector2.new(420, 260))
+local netBuy = button({ Position = UDim2.fromOffset(20, 70), Size = UDim2.new(1, -40, 0, 74), BackgroundColor3 = GOOD, Text = "", Parent = shopPanel })
+local shelfBuy = button({ Position = UDim2.fromOffset(20, 160), Size = UDim2.new(1, -40, 0, 74), BackgroundColor3 = GOOD, Text = "", Parent = shopPanel })
+
+local wheelPanel = panel("Dagelijks rad", Vector2.new(400, 500))
+local WHEEL_SIZE = 300
+local wheel = create("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0),
+	Position = UDim2.new(0.5, 0, 0, 80),
+	Size = UDim2.fromOffset(WHEEL_SIZE, WHEEL_SIZE),
+	BackgroundColor3 = Color3.fromRGB(240, 240, 250),
+	Parent = wheelPanel,
+}, { corner(WHEEL_SIZE / 2), create("UIStroke", { Thickness = 6, Color = Color3.fromRGB(255, 200, 60) }) })
+
+local prizeCount = #Config.WheelPrizes
+local segmentAngle = 360 / prizeCount
+for i, prize in Config.WheelPrizes do
+	local angle = (i - 1) * segmentAngle
+	local rad = math.rad(angle)
+	local radius = WHEEL_SIZE / 2 - 58
+	local chip = create("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, math.sin(rad) * radius, 0.5, -math.cos(rad) * radius),
+		Size = UDim2.fromOffset(96, 40),
+		Rotation = angle,
+		BackgroundColor3 = prize.color,
+		Parent = wheel,
+	}, { corner(10) })
+	label({ Text = prize.label, Size = UDim2.fromScale(1, 1), Parent = chip })
+end
+create("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.fromScale(0.5, 0.5),
+	Size = UDim2.fromOffset(40, 40),
+	BackgroundColor3 = Color3.fromRGB(255, 200, 60),
+	Parent = wheel,
+}, { corner(20) })
+-- Pijl bovenaan die de prijs aanwijst
+label({
+	Text = "V",
+	AnchorPoint = Vector2.new(0.5, 1),
+	Position = UDim2.new(0.5, 0, 0, 84),
+	Size = UDim2.fromOffset(40, 36),
+	TextColor3 = Color3.fromRGB(255, 70, 70),
+	Parent = wheelPanel,
+})
+local spinButton = button({
+	AnchorPoint = Vector2.new(0.5, 1),
+	Position = UDim2.new(0.5, 0, 1, -20),
+	Size = UDim2.fromOffset(220, 64),
+	BackgroundColor3 = GOOD,
+	Text = "Draai!",
+	Parent = wheelPanel,
+})
+
+---------------------------------------------------------------------------
+-- Gedrag
+---------------------------------------------------------------------------
+local function playSecondsNow(): number
+	if not state then
+		return 0
+	end
+	return state.playSeconds + (os.clock() - stateClock)
+end
+
+local function refresh()
+	if not state then
+		return
+	end
+	local net = Config.Nets[state.netTier]
+	local nextNet = Config.Nets[state.netTier + 1]
+	local luckLeft = state.luckLeft - (os.clock() - stateClock)
+	local info = string.format(
+		"+%s/s  |  %s  |  Lab %d/%d",
+		Config.FormatNumber(state.income),
+		net and net.name or "?",
+		#state.jars,
+		state.capacity
+	)
+	if luckLeft > 0 then
+		info ..= "  |  Geluk " .. formatTime(luckLeft)
+	end
+	infoLabel.Text = info
+
+	if nextNet then
+		netBuy.Text = nextNet.name .. "  -  " .. Config.FormatNumber(nextNet.price) .. " munten"
+	else
+		netBuy.Text = "Je hebt het beste net"
+	end
+	if state.shelves < Config.MaxShelves then
+		shelfBuy.Text = "Extra plank (+" .. Config.SlotsPerShelf .. " potten)  -  " .. Config.FormatNumber(Config.ShelfPrice(state.shelves)) .. " munten"
+	else
+		shelfBuy.Text = "Maximaal aantal planken"
+	end
+
+	wheelDot.Visible = state.wheelReady
+	spinButton.Text = if state.wheelReady then "Draai!" else "Morgen weer"
+end
+
+local function refreshReward()
+	if not state then
+		return
+	end
+	local nextIndex = state.playClaimed + 1
+	if not Config.PlaytimeRewards[nextIndex] then
+		rewardButton.Text = "Morgen meer beloningen"
+		rewardButton.BackgroundColor3 = Color3.fromRGB(120, 120, 130)
+		return
+	end
+	local waitSeconds = Config.PlaytimeUnlockMinutes(nextIndex) * 60 - playSecondsNow()
+	if waitSeconds <= 0 then
+		rewardButton.Text = "Beloning klaar!"
+		rewardButton.BackgroundColor3 = GOOD
+	else
+		rewardButton.Text = "Beloning over " .. formatTime(waitSeconds)
+		rewardButton.BackgroundColor3 = Color3.fromRGB(120, 120, 130)
+	end
+end
+
+remotes:WaitForChild("State").OnClientEvent:Connect(function(newState)
+	state = newState
+	stateClock = os.clock()
+	refresh()
+	refreshReward()
+end)
+
+remotes:WaitForChild("Notify").OnClientEvent:Connect(toast)
+
+-- Munten live bijwerken via leaderstats
+task.spawn(function()
+	local leaderstats = player:WaitForChild("leaderstats")
+	local coins = leaderstats:WaitForChild("Munten")
+	local function update()
+		coinsLabel.Text = Config.FormatNumber(coins.Value) .. " munten"
+	end
+	coins.Changed:Connect(update)
+	update()
+end)
+
+shopButton.Activated:Connect(function()
+	shopPanel.Visible = not shopPanel.Visible
+	wheelPanel.Visible = false
+end)
+wheelButton.Activated:Connect(function()
+	wheelPanel.Visible = not wheelPanel.Visible
+	shopPanel.Visible = false
+end)
+
+local busy = false
+local function invoke(name: string)
+	if busy then
+		return
+	end
+	busy = true
+	local ok, success, message = pcall(function()
+		return remotes[name]:InvokeServer()
+	end)
+	busy = false
+	if ok and message then
+		toast(message, if success then GOOD else Color3.fromRGB(255, 120, 120))
+	end
+end
+
+netBuy.Activated:Connect(function()
+	invoke("BuyNet")
+end)
+shelfBuy.Activated:Connect(function()
+	invoke("BuyShelf")
+end)
+rewardButton.Activated:Connect(function()
+	invoke("ClaimPlaytime")
+end)
+
+local spinning = false
+spinButton.Activated:Connect(function()
+	if spinning or not state or not state.wheelReady then
+		return
+	end
+	spinning = true
+	local ok, index, text = pcall(function()
+		return remotes.SpinWheel:InvokeServer()
+	end)
+	if not ok or not index then
+		spinning = false
+		return
+	end
+	-- Draai een paar rondes en stop met de gewonnen prijs bovenaan.
+	wheel.Rotation = wheel.Rotation % 360
+	local target = -(index - 1) * segmentAngle - 360 * 5
+	local tween = TweenService:Create(wheel, TweenInfo.new(4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), { Rotation = target })
+	tween:Play()
+	tween.Completed:Wait()
+	toast("Je won " .. text .. "!", Color3.fromRGB(255, 220, 80))
+	spinning = false
+end)
+
+-- Storm
+local stormEndsAt = 0
+local stormPhase = "ended"
+remotes:WaitForChild("Storm").OnClientEvent:Connect(function(phase, _center, seconds)
+	stormPhase = phase
+	stormEndsAt = os.clock() + seconds
+	stormBanner.Visible = phase ~= "ended"
+	if phase == "warning" then
+		toast("Er komt een storm aan! Kijk naar de donkere wolk.", Color3.fromRGB(180, 160, 255))
+	elseif phase == "ended" then
+		toast("De storm is voorbij.", Color3.fromRGB(180, 180, 200))
+	end
+end)
+
+-- Elke frame: tellers bijwerken
+local lastUpdate = 0
+RunService.Heartbeat:Connect(function()
+	if os.clock() - lastUpdate < 0.25 then
+		return
+	end
+	lastUpdate = os.clock()
+	refreshReward()
+	if state and state.luckLeft > 0 then
+		refresh()
+	end
+	if stormPhase ~= "ended" then
+		local left = formatTime(stormEndsAt - os.clock())
+		if stormPhase == "warning" then
+			stormBanner.Text = "STORM over " .. left .. "! Ren naar de donkere wolk"
+		else
+			stormBanner.Text = "STORM! 5x kans op zeldzaam weer  -  nog " .. left
+		end
+	end
+end)
+]]></ProtectedString></Properties></Item></Item></Item></Item></roblox>
